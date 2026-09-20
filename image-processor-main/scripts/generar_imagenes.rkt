@@ -26,10 +26,9 @@
 ;; 2) Tablero de ajedrez (bordes duros, útil para ver el efecto del blur)
 (define (checkerboard f c)
   (define tam 20)
-  (if (even? (+ (quotient f tam) (quotient c tam)))
-      (values 240 240 240)
-      (values 20 20 20))
-  )
+  (cond [(even? (+ (quotient f tam) (quotient c tam)))
+         (values 240 240 240)]
+        [else (values 20 20 20)]))
 
 ;; 3) Barras de color (para probar grayscale/invert)
 (define (colorbars f c ancho)
@@ -49,9 +48,10 @@
   (values v (modulo (+ v 85) 256) (modulo (+ v 170) 256)))
 
 (define (main)
-  (define destino (if (> (vector-length (current-command-line-arguments)) 0)
-                       (vector-ref (current-command-line-arguments) 0)
-                       "test_images"))
+  (define destino
+    (cond [(> (vector-length (current-command-line-arguments)) 0)
+           (vector-ref (current-command-line-arguments) 0)]
+          [else "test_images"]))
   (make-directory* destino)
 
   (escribir-ppm (build-path destino "gradiente_64x64.ppm") 64 64
