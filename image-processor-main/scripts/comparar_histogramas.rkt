@@ -100,9 +100,10 @@
   ;; similitud coseno entre los dos histogramas vistos como vectores
   ;; (uno por valor de gris 0..255): 1.0 = distribuciones identicas,
   ;; 0.0 = sin superposicion.
-  (define similitud (if (and (> normA 0) (> normB 0))
-                         (/ cruce (sqrt (* 1.0 normA normB)))
-                         0))
+  (define similitud
+  (cond [(and (> normA 0) (> normB 0))
+         (/ cruce (sqrt (* 1.0 normA normB)))]
+        [else 0]))
   (printf "A: ~a (~ax~a)\n" pathA anchoA altoA)
   (printf "B: ~a (~ax~a)\n" pathB anchoB altoB)
   (printf "  mergecount(A,B) = ~a\n" cruce)
