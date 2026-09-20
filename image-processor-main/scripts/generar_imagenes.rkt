@@ -31,12 +31,12 @@
 (define colorbars
   (lambda (f c ancho)
     (define franja (quotient (* c 6) ancho))
-    (case franja
-      [(0) (values 255 0 0)]
-      [(1) (values 0 255 0)]
-      [(2) (values 0 0 255)]
-      [(3) (values 255 255 0)]
-      [(4) (values 0 255 255)]
+    (cond
+      [(= franja 0) (values 255 0 0)]
+      [(= franja 1) (values 0 255 0)]
+      [(= franja 2) (values 0 0 255)]
+      [(= franja 3) (values 255 255 0)]
+      [(= franja 4) (values 0 255 255)]
       [else (values 255 0 255)])))
 
 (define ruido
