@@ -55,13 +55,18 @@
   (define cant-grupos (length grupos))
   ;; tamano "codificado" aproximado: 2 numeros por grupo (valor y
   ;; repeticiones), contra 1 numero por valor original.
-  (define tasa (if (> n 0) (/ (* 2.0 cant-grupos) n) 0))
+  (define tasa
+  (cond [(> n 0) (/ (* 2.0 cant-grupos) n)]
+        [else 0]))
   (printf "~a  (~ax~a, ~a valores)\n" path ancho alto n)
   (printf "  grupos tras RLE (pack): ~a\n" cant-grupos)
   (printf "  tasa aprox. (2*grupos/valores, menor es mas compresible): ~a\n"
           (real->decimal-string tasa 4))
   (printf "  racha promedio: ~a valores/grupo\n\n"
-          (real->decimal-string (if (> cant-grupos 0) (/ n cant-grupos) 0) 2)))
+        (real->decimal-string
+         (cond [(> cant-grupos 0) (/ n cant-grupos)]
+               [else 0])
+         2))
 
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
