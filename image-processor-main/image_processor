@@ -1,0 +1,42 @@
+#!/bin/bash
+# -----------------------------------------------------------------------
+# image_processor
+#
+# Interfaz minima exigida por el enunciado (seccion 15):
+#   ./image_processor entrada.ppm salida.ppm N [filtro] [ksize] [borde]
+#
+# Compila los modulos Erlang si hace falta y delega en
+# image_processor:main/1. Se ubica solo (no importa desde donde se
+# invoque), pero racket necesita que scheme/filtro.rkt este accesible
+# con ruta relativa, asi que igual se ejecuta parado en la raiz del
+# proyecto.
+# -----------------------------------------------------------------------
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
+
+if [ "$#" -lt 3 ]; then
+    echo "Uso: ./image_processor entrada.ppm salida.ppm N [filtro] [ksize] [borde]"
+    echo "Filtros: gaussian | sharpen | grayscale | invert | threshold | brightness | transponer"
+    exit 1
+fi
+
+# Compila si el .beam no existe o el .erl es mas nuevo.
+if [ ! -f erlang/image_processor.beam ] || [ erlang/image_processor.erl -nt erlang/image_processor.beam ] \
+   || [ ! -f erlang/ppm.beam ] || [ erlang/ppm.erl -nt erlang/ppm.beam ]; then
+    erlc -o erlang erlang/ppm.erl erlang/image_processor.erl
+fi
+
+# Arma la lista de argumentos en formato Erlang: ["a","b","c"]
+ARGS=""
+for a in "$@"; do
+    a_escapado=$(printf '%s' "$a" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    if [ -z "$ARGS" ]; then
+        ARGS="\"$a_escapado\""
+    else
+        ARGS="$ARGS,\"$a_escapado\""
+    fi
+done
+
+erl -noshell -pa erlang -eval "image_processor:main([${ARGS}]), init:stop()."
