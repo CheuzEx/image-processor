@@ -166,7 +166,7 @@ lanzar(Server, Idx, Ctx) ->
     spawn(?MODULE, trabajar, [Server, Idx, Peticion]).
 
 trabajar(Server, Idx, Peticion) ->
-    Port = open_port({spawn, "racket " ++ ?RACKET_SCRIPT}, [binary, exit_status, {packet, 4}]),
+    open_port({spawn, "\"/mnt/c/Program Files/Racket/swindle.exe\" " ++ ?RACKET_SCRIPT}, [binary, exit_status, {packet, 4}]),
     port_command(Port, list_to_binary(Peticion)),
     Server ! {resultado, Idx, esperar(Port)}.
 
