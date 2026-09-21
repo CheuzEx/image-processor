@@ -229,17 +229,28 @@
 (define filtro-threshold
   (lambda (m ancho alto params borde)
     (define t (car (a-enteros params)))
-    (mapa-puntual m (lambda (p)
-                       (define gris (/ (+ (car p) (cadr p) (caddr p)) 3))
-                       (cond ((>= gris t) '(255 255 255)) (else '(0 0 0)))))))
+    (map
+     (lambda (fila)
+       (map
+        (lambda (p)
+          (define gris (/ (+ (car p) (cadr p) (caddr p)) 3))
+          (cond ((>= gris t) '(255 255 255))
+                (else '(0 0 0))))
+        fila))
+     m)))
 
 (define filtro-brightness
   (lambda (m ancho alto params borde)
     (define delta (car (a-enteros params)))
-    (mapa-puntual m (lambda (p)
-                       (list (recortar-valor (+ (car p) delta) 0 255)
-                             (recortar-valor (+ (cadr p) delta) 0 255)
-                             (recortar-valor (+ (caddr p) delta) 0 255))))))
+    (map
+     (lambda (fila)
+       (map
+        (lambda (p)
+          (list (recortar-valor (+ (car p) delta) 0 255)
+                (recortar-valor (+ (cadr p) delta) 0 255)
+                (recortar-valor (+ (caddr p) delta) 0 255)))
+        fila))
+     m)))
 
 (define transpuesta
   (lambda (M)
@@ -329,7 +340,7 @@
   (lambda ()
     (define peticion (leer-paquete))
     (cond
-      ((not peticion) 1(exit 1))
+      ((not peticion) (exit 1))
       (else
        (with-handlers
            ([exn:fail? (lambda (e)
