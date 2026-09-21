@@ -1,3 +1,4 @@
+#lang swindle
 (define split-cadena-aux
   (lambda (str sep)
     (define len (string-length str))
