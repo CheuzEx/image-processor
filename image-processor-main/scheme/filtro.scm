@@ -17,9 +17,23 @@
 
 (define unir-cadenas-aux
   (lambda (lst sep)
-    (cond ((null? lst) "")
-          ((null? (cdr lst)) (car lst))
-          (else (string-append (car lst) sep (unir-cadenas-aux (cdr lst) sep))))))
+    (cond
+      ((null? lst) "")
+      (else
+       (define out (open-output-string))
+       (escribir-cadenas-aux lst sep out)
+       (get-output-string out)))))
+
+(define escribir-cadenas-aux
+  (lambda (lst sep out)
+    (cond
+      ((null? lst) #t)
+      ((null? (cdr lst))
+       (write-string (car lst) out))
+      (else
+       (write-string (car lst) out)
+       (write-string sep out)
+       (escribir-cadenas-aux (cdr lst) sep out)))))
 
 ;; ---------- framing de 4 bytes (protocolo con Erlang) ----------
 
