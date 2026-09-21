@@ -1,11 +1,24 @@
-#lang racket/base
-;; filtro.rkt -- procesa UNA region de imagen. Estilo: como clase.scm
-;; (define nombre (lambda (args) ...)), todo con listas y cond, sin
-;; vectores, sin hash-tables, sin let/let*/letrec, sin set!, y sin
-;; list-ref (el acceso a un elemento se hace a mano, recursivamente,
-;; con nth-aux). pp y transpuesta son las mismas de clase.scm.
+(define split-cadena-aux
+  (lambda (str sep)
+    (define len (string-length str))
+    (define buscar
+      (lambda (i inicio)
+        (cond ((>= i len)
+               (if (> i inicio)
+                   (list (substring str inicio i))
+                   '()))
+              ((char=? (string-ref str i) sep)
+               (if (> i inicio)
+                   (cons (substring str inicio i) (buscar (+ i 1) (+ i 1)))
+                   (buscar (+ i 1) (+ i 1))))
+              (else (buscar (+ i 1) inicio)))))
+    (buscar 0 0)))
 
-(require racket/string)
+(define unir-cadenas-aux
+  (lambda (lst sep)
+    (cond ((null? lst) "")
+          ((null? (cdr lst)) (car lst))
+          (else (string-append (car lst) sep (unir-cadenas-aux (cdr lst) sep))))))
 
 ;; ---------- framing de 4 bytes (protocolo con Erlang) ----------
 
@@ -15,8 +28,10 @@
     (cond ((or (eof-object? bs) (< (bytes-length bs) 4)) #f)
           (else (integer-bytes->integer bs #f #t)))))
 
+;; Argumento opcional adaptado usando '. rest' para evitar el error de sintaxis en Swindle
 (define leer-paquete
-  (lambda ([in (current-input-port)])
+  (lambda rest
+    (define in (if (null? rest) (current-input-port) (car rest)))
     (define n (leer-entero32 in))
     (cond ((not n) #f)
           (else (define cuerpo (read-bytes n in))
@@ -24,7 +39,8 @@
                       (else (bytes->string/utf-8 cuerpo)))))))
 
 (define escribir-paquete
-  (lambda (texto [out (current-output-port)])
+  (lambda (texto . rest)
+    (define out (if (null? rest) (current-output-port) (car rest)))
     (define bs (string->bytes/utf-8 texto))
     (write-bytes (integer->integer-bytes (bytes-length bs) 4 #f #t) out)
     (write-bytes bs out)
@@ -34,12 +50,12 @@
 
 (define analizar-peticion
   (lambda (texto)
-    (analizar-lineas-aux (string-split texto "\n"))))
+    (analizar-lineas-aux (split-cadena-aux texto #\newline))))
 
 (define analizar-lineas-aux
   (lambda (lineas)
     (cond ((null? lineas) '())
-          (else (define partes (string-split (car lineas) " " #:trim? #t))
+          (else (define partes (split-cadena-aux (car lineas) #\space))
                 (cond ((null? partes) (analizar-lineas-aux (cdr lineas)))
                       (else (cons (cons (string-upcase (car partes)) (cdr partes))
                                   (analizar-lineas-aux (cdr lineas)))))))))
@@ -59,16 +75,13 @@
 (define a-enteros (lambda (lst) (map string->number lst)))
 
 ;; ---------- acceso manual a un elemento de una lista, sin list-ref ----------
-;; nth-aux: recorre la lista bajando de a uno hasta que n llega a 0,
-;; el mismo estilo de "consumir" un contador que iota-aux/fibo-cola-aux
-;; en clase.scm.
+
 (define nth-aux
   (lambda (lst n)
     (cond ((zero? n) (car lst))
-          (else (nth-aux (cdr lst) (sub1 n))))))
+          (else (nth-aux (cdr lst) (- n 1))))))
 
 ;; ---------- region como lista de filas, cada fila lista de pixeles (r g b) ----------
-;; (misma idea que 'mat' en clase.scm: lista de listas)
 
 (define pixeles-a-matriz
   (lambda (plano ancho alto)
@@ -99,25 +112,15 @@
 
 (define recortar-valor (lambda (v lo hi) (max lo (min hi v))))
 
-;; Acceso a un pixel de la region con ESTRATEGIA DE BORDE elegible:
-;;   'extender -> se recorta (clamp) a la fila/columna valida mas
-;;                cercana (repite el pixel del borde)
-;;   'ceros    -> fuera del ancho real de la region, el pixel vale (0 0 0)
-;; El eje de filas siempre esta dentro de rango porque Erlang ya manda
-;; exactamente las filas de halo necesarias; el eje de columnas es el
-;; que de verdad puede salirse (bandas de ancho completo), asi que ahi
-;; es donde 'ceros' hace diferencia.
 (define obtener-pixel
   (lambda (m alto ancho fila col borde)
-    (define f2 (recortar-valor fila 0 (sub1 alto)))
+    (define f2 (recortar-valor fila 0 (- alto 1)))
     (cond ((and (eq? borde 'ceros) (or (< col 0) (>= col ancho)))
            (list 0 0 0))
-          (else (nth-aux (nth-aux m f2) (recortar-valor col 0 (sub1 ancho)))))))
+          (else (nth-aux (nth-aux m f2) (recortar-valor col 0 (- ancho 1)))))))
 
-;; pp: producto punto, igual que en clase.scm.
 (define pp (lambda (v w) (apply + (map * v w))))
 
-;; offsets del kernel cuadrado de radio r, fila por fila (mismo orden del kernel)
 (define offsets-aux
   (lambda (r) (offsets-filas-aux (- r) r)))
 
@@ -137,8 +140,6 @@
           (else (cons (obtener-pixel m alto ancho (+ fila (caar offsets)) (+ col (cdar offsets)) borde)
                       (vecinos-aux m alto ancho fila col (cdr offsets) borde))))))
 
-;; convolucion generica: cada canal de salida es pp(kernel, vecinos-del-canal),
-;; exactamente el mismo patron de pp/mul-mat de clase.scm.
 (define convolucion
   (lambda (m ancho alto kernel r divisor borde)
     (define offsets (offsets-aux r))
@@ -159,14 +160,7 @@
                             (recortar-valor (round (/ (pp kernel (map caddr vec)) divisor)) 0 255))
                       (convolucion-fila-aux m ancho alto kernel divisor offsets fila (+ col 1) borde))))))
 
-;; ---------- kernel gaussiano de tamano arbitrario, via triangulo de Pascal ----------
-;; En vez de que Erlang mande los K*K coeficientes ya calculados,
-;; Scheme genera el kernel por recursion pura a partir de la fila
-;; (ksize-1) del triangulo de Pascal (relacion clasica
-;; C(n,k) = C(n-1,k-1) + C(n-1,k)): el producto externo de esa fila
-;; consigo misma aproxima la gaussiana 2D (para ksize=3 da exactamente
-;; el kernel [[1,2,1],[2,4,2],[1,2,1]]/16 de siempre). Esto es lo que
-;; permite cambiar el tamano del kernel sin tocar Erlang.
+;; ---------- kernel gaussiano via triangulo de Pascal ----------
 
 (define fila-pascal
   (lambda (n)
@@ -186,14 +180,11 @@
 
 (define kernel-gaussiano
   (lambda (ksize)
-    (define fila (fila-pascal (sub1 ksize)))
+    (define fila (fila-pascal (- ksize 1)))
     (define suma (apply + fila))
     (cons (producto-externo-aux fila fila) (* suma suma))))
 
 ;; ---------- filtros ----------
-;; Todos reciben (m ancho alto params borde), aunque varios ignoren
-;; 'params'/'borde' -- misma firma para todos, mismo espiritu que las
-;; funciones de clase.scm que reciben mas de lo que usan por prolijidad.
 
 (define filtro-gaussiano
   (lambda (m ancho alto params borde)
@@ -201,35 +192,39 @@
     (define kd (kernel-gaussiano ksize))
     (define kernel (car kd))
     (define divisor (cdr kd))
-    (convolucion m ancho alto kernel (quotient (sub1 ksize) 2) divisor borde)))
+    (convolucion m ancho alto kernel (quotient (- ksize 1) 2) divisor borde)))
 
 (define filtro-sharpen
   (lambda (m ancho alto params borde)
     (convolucion m ancho alto '(0 -1 0 -1 5 -1 0 -1 0) 1 1 borde)))
 
-;; filtros puntuales: no usan vecinos, solo mapean cada pixel con f
-(define mapa-puntual
-  (lambda (m f)
-    (cond ((null? m) '())
-          (else (cons (mapa-puntual-fila-aux (car m) f) (mapa-puntual (cdr m) f))))))
-
-(define mapa-puntual-fila-aux
-  (lambda (fila f)
-    (cond ((null? fila) '())
-          (else (cons (f (car fila)) (mapa-puntual-fila-aux (cdr fila) f))))))
-
 (define filtro-grayscale
   (lambda (m ancho alto params borde)
-    (mapa-puntual m (lambda (p)
-                       (define gris (recortar-valor
-                                     (inexact->exact
-                                      (round (+ (* 0.299 (car p)) (* 0.587 (cadr p)) (* 0.114 (caddr p)))))
-                                     0 255))
-                       (list gris gris gris)))))
+    (map
+     (lambda (fila)
+       (map
+        (lambda (p)
+          (define gris
+            (recortar-valor
+             (round (+ (* 0.299 (car p))
+                       (* 0.587 (cadr p))
+                       (* 0.114 (caddr p))))
+             0 255))
+          (list gris gris gris))
+        fila))
+     m)))
 
 (define filtro-invert
   (lambda (m ancho alto params borde)
-    (mapa-puntual m (lambda (p) (list (- 255 (car p)) (- 255 (cadr p)) (- 255 (caddr p)))))))
+    (map
+     (lambda (fila)
+       (map
+        (lambda (p)
+          (list (- 255 (car p))
+                (- 255 (cadr p))
+                (- 255 (caddr p))))
+        fila))
+     m)))
 
 (define filtro-threshold
   (lambda (m ancho alto params borde)
@@ -246,7 +241,6 @@
                              (recortar-valor (+ (cadr p) delta) 0 255)
                              (recortar-valor (+ (caddr p) delta) 0 255))))))
 
-;; transpuesta: literal de clase.scm (M es lista de filas, cada fila lista de pixeles)
 (define transpuesta
   (lambda (M)
     (cond ((null? M) '())
@@ -255,7 +249,6 @@
 
 (define filtro-transponer (lambda (m ancho alto params borde) (transpuesta m)))
 
-;; despacho de filtros por nombre: cond en vez de tabla hash, como en clase.scm
 (define obtener-filtro
   (lambda (nombre)
     (cond ((string=? nombre "GAUSSIAN") filtro-gaussiano)
@@ -273,7 +266,6 @@
           ((string=? nombre "SHARPEN") #t)
           (else #f))))
 
-;; recorta el halo: se queda solo con las filas/columnas de la region propia
 (define recortar-halo
   (lambda (m izq arr der ab alto)
     (recortar-halo-aux (quita-primeras m arr) izq der (- alto arr ab))))
@@ -316,8 +308,6 @@
     (define halo (a-enteros (campo tabla "HALO")))
     (define izq (car halo)) (define arr (cadr halo)) (define der (caddr halo)) (define ab (cadddr halo))
     (define pixeles (a-enteros (campo tabla "PIXELS")))
-    ;; estrategia de borde: "extender" si no viene el campo, para no
-    ;; romper compatibilidad con peticiones que no lo incluyan
     (define borde-texto (string-downcase (car (campo-opcional tabla "BORDE" '("extender")))))
     (define borde (cond ((string=? borde-texto "ceros") 'ceros) (else 'extender)))
     (define f (obtener-filtro nombre))
@@ -330,7 +320,7 @@
     (define ancho-final (cond ((zero? alto-final) 0) (else (length (car final)))))
     (string-append "OK\n"
                    "DIMS " (number->string ancho-final) " " (number->string alto-final) "\n"
-                   "PIXELS " (string-join (map number->string (matriz-a-pixeles final)) " ")
+                   "PIXELS " (unir-cadenas-aux (map number->string (matriz-a-pixeles final)) " ")
                    "\n")))
 
 ;; ---------- punto de entrada ----------
@@ -339,7 +329,7 @@
   (lambda ()
     (define peticion (leer-paquete))
     (cond
-      ((not peticion) (exit 1))
+      ((not peticion) 1(exit 1))
       (else
        (with-handlers
            ([exn:fail? (lambda (e)
