@@ -1,7 +1,7 @@
 -module(image_processor).
 -export([main/1, imgServer/3, trabajar/3]).
 
--define(RACKET_SCRIPT, "scheme/filtro.rkt").
+-define(RACKET_SCRIPT, "scheme/filtro.scm").
 -define(TIMEOUT_MS, 30000).
 -define(MAX_REINTENTOS, 1).
 
