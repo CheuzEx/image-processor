@@ -207,9 +207,11 @@
         (lambda (p)
           (define gris
             (recortar-valor
-             (round (+ (* 0.299 (car p))
-                       (* 0.587 (cadr p))
-                       (* 0.114 (caddr p))))
+             (inexact->exact
+              (round
+               (+ (* 0.299 (car p))
+                  (* 0.587 (cadr p))
+                  (* 0.114 (caddr p)))))
              0 255))
           (list gris gris gris))
         fila))
