@@ -36,18 +36,9 @@
     (cond
       ((null? lst) "")
       (else
-       (unir-cadenas-rec lst sep)))))
-
-(define unir-cadenas-rec
-  (lambda (lst sep)
-    (cond
-      ((null? (cdr lst))
-       (car lst))
-      (else
-       (string-append
-        (car lst)
-        sep
-        (unir-cadenas-rec (cdr lst) sep))))))
+       (define out (open-output-string))
+       (escribir-cadenas-aux lst sep out)
+       (get-output-string out)))))
 
 (define escribir-cadenas-aux
   (lambda (lst sep out)
