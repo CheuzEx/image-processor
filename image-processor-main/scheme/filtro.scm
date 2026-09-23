@@ -1,28 +1,53 @@
 #lang swindle
+
 (define split-cadena-aux
   (lambda (str sep)
-    (define len (string-length str))
-    (define buscar
-      (lambda (i inicio)
-        (cond ((>= i len)
-               (if (> i inicio)
-                   (list (substring str inicio i))
-                   '()))
-              ((char=? (string-ref str i) sep)
-               (if (> i inicio)
-                   (cons (substring str inicio i) (buscar (+ i 1) (+ i 1)))
-                   (buscar (+ i 1) (+ i 1))))
-              (else (buscar (+ i 1) inicio)))))
-    (buscar 0 0)))
+    (split-buscar str sep 0 0)))
+
+(define split-buscar
+  (lambda (str sep i inicio)
+    (cond
+      ((>= i (string-length str))
+       (split-final str i inicio))
+      ((char=? (string-ref str i) sep)
+       (split-separador str sep i inicio))
+      (else
+       (split-buscar str sep (+ i 1) inicio)))))
+
+(define split-final
+  (lambda (str i inicio)
+    (cond
+      ((> i inicio)
+       (list (substring str inicio i)))
+      (else
+       '()))))
+
+(define split-separador
+  (lambda (str sep i inicio)
+    (cond
+      ((> i inicio)
+       (cons (substring str inicio i)
+             (split-buscar str sep (+ i 1) (+ i 1))))
+      (else
+       (split-buscar str sep (+ i 1) (+ i 1))))))
 
 (define unir-cadenas-aux
   (lambda (lst sep)
     (cond
       ((null? lst) "")
       (else
-       (define out (open-output-string))
-       (escribir-cadenas-aux lst sep out)
-       (get-output-string out)))))
+       (unir-cadenas-rec lst sep)))))
+
+(define unir-cadenas-rec
+  (lambda (lst sep)
+    (cond
+      ((null? (cdr lst))
+       (car lst))
+      (else
+       (string-append
+        (car lst)
+        sep
+        (unir-cadenas-rec (cdr lst) sep))))))
 
 (define escribir-cadenas-aux
   (lambda (lst sep out)
