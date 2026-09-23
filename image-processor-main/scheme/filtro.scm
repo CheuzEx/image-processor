@@ -64,24 +64,46 @@
 
 (define leer-entero32
   (lambda (in)
-    (define bs (read-bytes 4 in))
+    (leer-entero32-aux (read-bytes 4 in))))
+
+(define leer-entero32-aux
+  (lambda (bs)
     (cond ((or (eof-object? bs) (< (bytes-length bs) 4)) #f)
           (else (integer-bytes->integer bs #f #t)))))
 
-;; Argumento opcional adaptado usando '. rest' para evitar el error de sintaxis en Swindle
 (define leer-paquete
   (lambda rest
-    (define in (if (null? rest) (current-input-port) (car rest)))
-    (define n (leer-entero32 in))
+    (leer-paquete-aux
+     (cond ((null? rest) (current-input-port))
+           (else (car rest))))))
+
+(define leer-paquete-aux
+  (lambda (in)
+    (leer-paquete-cuerpo (leer-entero32 in) in)))
+
+(define leer-paquete-cuerpo
+  (lambda (n in)
     (cond ((not n) #f)
-          (else (define cuerpo (read-bytes n in))
-                (cond ((eof-object? cuerpo) #f)
-                      (else (bytes->string/utf-8 cuerpo)))))))
+          (else (leer-paquete-bytes (read-bytes n in))))))
+
+(define leer-paquete-bytes
+  (lambda (cuerpo)
+    (cond ((eof-object? cuerpo) #f)
+          (else (bytes->string/utf-8 cuerpo)))))
 
 (define escribir-paquete
   (lambda (texto . rest)
-    (define out (if (null? rest) (current-output-port) (car rest)))
-    (define bs (string->bytes/utf-8 texto))
+    (escribir-paquete-aux
+     texto
+     (cond ((null? rest) (current-output-port))
+           (else (car rest))))))
+
+(define escribir-paquete-aux
+  (lambda (texto out)
+    (escribir-paquete-bytes (string->bytes/utf-8 texto) out)))
+
+(define escribir-paquete-bytes
+  (lambda (bs out)
     (write-bytes (integer->integer-bytes (bytes-length bs) 4 #f #t) out)
     (write-bytes bs out)
     (flush-output out)))
@@ -95,20 +117,33 @@
 (define analizar-lineas-aux
   (lambda (lineas)
     (cond ((null? lineas) '())
-          (else (define partes (split-cadena-aux (car lineas) #\space))
-                (cond ((null? partes) (analizar-lineas-aux (cdr lineas)))
-                      (else (cons (cons (string-upcase (car partes)) (cdr partes))
-                                  (analizar-lineas-aux (cdr lineas)))))))))
+          (else (analizar-linea (car lineas) (cdr lineas))))))
+
+(define analizar-linea
+  (lambda (linea resto)
+    (analizar-partes (split-cadena-aux linea #\space) resto)))
+
+(define analizar-partes
+  (lambda (partes resto)
+    (cond ((null? partes) (analizar-lineas-aux resto))
+          (else (cons (cons (string-upcase (car partes)) (cdr partes))
+                      (analizar-lineas-aux resto))))))
 
 (define campo
   (lambda (tabla clave)
-    (define entrada (assoc clave tabla))
+    (campo-aux (assoc clave tabla) clave)))
+
+(define campo-aux
+  (lambda (entrada clave)
     (cond (entrada (cdr entrada))
           (else (error 'filtro "campo faltante: ~a" clave)))))
 
 (define campo-opcional
   (lambda (tabla clave defecto)
-    (define entrada (assoc clave tabla))
+    (campo-opcional-aux (assoc clave tabla) defecto)))
+
+(define campo-opcional-aux
+  (lambda (entrada defecto)
     (cond (entrada (cdr entrada))
           (else defecto))))
 
@@ -154,7 +189,12 @@
 
 (define obtener-pixel
   (lambda (m alto ancho fila col borde)
-    (define f2 (recortar-valor fila 0 (- alto 1)))
+    (obtener-pixel-aux m alto ancho
+                       (recortar-valor fila 0 (- alto 1))
+                       col borde)))
+
+(define obtener-pixel-aux
+  (lambda (m alto ancho f2 col borde)
     (cond ((and (eq? borde 'ceros) (or (< col 0) (>= col ancho)))
            (list 0 0 0))
           (else (nth-aux (nth-aux m f2) (recortar-valor col 0 (- ancho 1)))))))
@@ -182,8 +222,7 @@
 
 (define convolucion
   (lambda (m ancho alto kernel r divisor borde)
-    (define offsets (offsets-aux r))
-    (convolucion-filas-aux m ancho alto kernel divisor offsets 0 borde)))
+    (convolucion-filas-aux m ancho alto kernel divisor (offsets-aux r) 0 borde)))
 
 (define convolucion-filas-aux
   (lambda (m ancho alto kernel divisor offsets fila borde)
@@ -194,11 +233,24 @@
 (define convolucion-fila-aux
   (lambda (m ancho alto kernel divisor offsets fila col borde)
     (cond ((>= col ancho) '())
-          (else (define vec (vecinos-aux m alto ancho fila col offsets borde))
-                (cons (list (recortar-valor (round (/ (pp kernel (map car vec)) divisor)) 0 255)
-                            (recortar-valor (round (/ (pp kernel (map cadr vec)) divisor)) 0 255)
-                            (recortar-valor (round (/ (pp kernel (map caddr vec)) divisor)) 0 255))
+          (else (cons (convolucion-pixel m ancho alto kernel divisor offsets fila col borde)
                       (convolucion-fila-aux m ancho alto kernel divisor offsets fila (+ col 1) borde))))))
+
+(define convolucion-pixel
+  (lambda (m ancho alto kernel divisor offsets fila col borde)
+    (convolucion-pixel-vec
+     (vecinos-aux m alto ancho fila col offsets borde)
+     kernel divisor)))
+
+(define convolucion-pixel-vec
+  (lambda (vec kernel divisor)
+    (list (canal-convolucionado (map car vec) kernel divisor)
+          (canal-convolucionado (map cadr vec) kernel divisor)
+          (canal-convolucionado (map caddr vec) kernel divisor))))
+
+(define canal-convolucionado
+  (lambda (canal kernel divisor)
+    (recortar-valor (round (/ (pp kernel canal) divisor)) 0 255)))
 
 ;; ---------- kernel gaussiano via triangulo de Pascal ----------
 
@@ -220,19 +272,30 @@
 
 (define kernel-gaussiano
   (lambda (ksize)
-    (define fila (fila-pascal (- ksize 1)))
-    (define suma (apply + fila))
-    (cons (producto-externo-aux fila fila) (* suma suma))))
+    (kernel-gaussiano-fila (fila-pascal (- ksize 1)))))
+
+(define kernel-gaussiano-fila
+  (lambda (fila)
+    (cons (producto-externo-aux fila fila)
+          (* (apply + fila) (apply + fila)))))
 
 ;; ---------- filtros ----------
 
 (define filtro-gaussiano
   (lambda (m ancho alto params borde)
-    (define ksize (car (a-enteros params)))
-    (define kd (kernel-gaussiano ksize))
-    (define kernel (car kd))
-    (define divisor (cdr kd))
-    (convolucion m ancho alto kernel (quotient (- ksize 1) 2) divisor borde)))
+    (filtro-gaussiano-ksize m ancho alto (car (a-enteros params)) borde)))
+
+(define filtro-gaussiano-ksize
+  (lambda (m ancho alto ksize borde)
+    (filtro-gaussiano-kernel m ancho alto ksize (kernel-gaussiano ksize) borde)))
+
+(define filtro-gaussiano-kernel
+  (lambda (m ancho alto ksize kd borde)
+    (convolucion m ancho alto
+                 (car kd)
+                 (quotient (- ksize 1) 2)
+                 (cdr kd)
+                 borde)))
 
 (define filtro-sharpen
   (lambda (m ancho alto params borde)
@@ -240,59 +303,56 @@
 
 (define filtro-grayscale
   (lambda (m ancho alto params borde)
-    (map
-     (lambda (fila)
-       (map
-        (lambda (p)
-          (define gris
-            (recortar-valor
-             (inexact->exact
-              (round
-               (+ (* 0.299 (car p))
-                  (* 0.587 (cadr p))
-                  (* 0.114 (caddr p)))))
-             0 255))
-          (list gris gris gris))
-        fila))
-     m)))
+    (map (lambda (fila) (map pixel-gris fila)) m)))
+
+(define pixel-gris
+  (lambda (p)
+    (pixel-gris-valor
+     (recortar-valor
+      (inexact->exact
+       (round (+ (* 0.299 (car p))
+                 (* 0.587 (cadr p))
+                 (* 0.114 (caddr p)))))
+      0 255))))
+
+(define pixel-gris-valor
+  (lambda (gris)
+    (list gris gris gris)))
 
 (define filtro-invert
   (lambda (m ancho alto params borde)
-    (map
-     (lambda (fila)
-       (map
-        (lambda (p)
-          (list (- 255 (car p))
-                (- 255 (cadr p))
-                (- 255 (caddr p))))
-        fila))
-     m)))
+    (map (lambda (fila) (map pixel-invertido fila)) m)))
+
+(define pixel-invertido
+  (lambda (p)
+    (list (- 255 (car p)) (- 255 (cadr p)) (- 255 (caddr p)))))
 
 (define filtro-threshold
   (lambda (m ancho alto params borde)
-    (define t (car (a-enteros params)))
-    (map
-     (lambda (fila)
-       (map
-        (lambda (p)
-          (define gris (/ (+ (car p) (cadr p) (caddr p)) 3))
-          (cond ((>= gris t) '(255 255 255))
-                (else '(0 0 0))))
-        fila))
-     m)))
+    (filtro-threshold-t m ancho alto (car (a-enteros params)))))
+
+(define filtro-threshold-t
+  (lambda (m ancho alto t)
+    (map (lambda (fila) (map (lambda (p) (pixel-threshold p t)) fila)) m)))
+
+(define pixel-threshold
+  (lambda (p t)
+    (cond ((>= (/ (+ (car p) (cadr p) (caddr p)) 3) t) '(255 255 255))
+          (else '(0 0 0)))))
 
 (define filtro-brightness
   (lambda (m ancho alto params borde)
-    (define delta (car (a-enteros params)))
-    (map
-     (lambda (fila)
-       (map
-        (lambda (p)
-          (list (recortar-valor (+ (car p) delta) 0 255)
-                (recortar-valor (+ (cadr p) delta) 0 255)
-                (recortar-valor (+ (caddr p) delta) 0 255)))
-        fila))
-     m)))
+    (filtro-brightness-delta m ancho alto (car (a-enteros params)))))
+
+(define filtro-brightness-delta
+  (lambda (m ancho alto delta)
+    (map (lambda (fila) (map (lambda (p) (pixel-brillo p delta)) fila)) m)))
+
+(define pixel-brillo
+  (lambda (p delta)
+    (list (recortar-valor (+ (car p) delta) 0 255)
+          (recortar-valor (+ (cadr p) delta) 0 255)
+          (recortar-valor (+ (caddr p) delta) 0 255))))
 
 (define transpuesta
   (lambda (M)
@@ -380,15 +440,20 @@
 
 (define main
   (lambda ()
-    (define peticion (leer-paquete))
-    (cond
-      ((not peticion) (exit 1))
-      (else
-       (with-handlers
-           ([exn:fail? (lambda (e)
-                         (escribir-paquete (string-append "ERROR " (exn-message e) "\n"))
-                         (exit 1))])
-         (escribir-paquete (procesar-peticion peticion))
-         (exit 0))))))
+    (main-peticion (leer-paquete))))
+
+(define main-peticion
+  (lambda (peticion)
+    (cond ((not peticion) (exit 1))
+          (else (main-procesar peticion)))))
+
+(define main-procesar
+  (lambda (peticion)
+    (with-handlers
+        ([exn:fail? (lambda (e)
+                      (escribir-paquete (string-append "ERROR " (exn-message e) "\n"))
+                      (exit 1))])
+      (escribir-paquete (procesar-peticion peticion))
+      (exit 0))))
 
 (main)
